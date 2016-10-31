@@ -18,6 +18,8 @@ var (
 	laddr = flag.String("laddr", "127.0.0.1:443", "Local address to listen on.")
 	raddr = flag.String("raddr", "", "Remote address to upstream data to.")
 	sni   = flag.String("sni", "", "SNI to accept and offer.")
+
+	stdout sync.Mutex
 )
 
 func main() {
@@ -67,11 +69,11 @@ func handle(id int, client net.Conn) {
 	wg.Add(2)
 
 	go func() {
-		pipe(fmt.Sprintf("#%v >", id), server, client)
+		pipe(fmt.Sprintf("#%v <", id), server, client)
 		wg.Done()
 	}()
 	go func() {
-		pipe(fmt.Sprintf("#%v <", id), client, server)
+		pipe(fmt.Sprintf("#%v >", id), client, server)
 		wg.Done()
 	}()
 
@@ -87,15 +89,17 @@ func pipe(prefix string, dst, src net.Conn) {
 	reader := bufio.NewReader(src)
 
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadSlice('\n')
 		if err != nil {
 			log.Printf("(Error reading: %v) %v", err, prefix)
 			return
 		}
 
-		fmt.Printf("%v %s\n", prefix, line)
+		stdout.Lock()
+		fmt.Printf("%v %s", prefix, line)
+		stdout.Unlock()
 
-		_, err = fmt.Fprintln(dst, line)
+		_, err = dst.Write(line)
 		if err != nil {
 			log.Printf("(Error writing: %v) %v", err, prefix)
 			return
